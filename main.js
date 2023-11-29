@@ -8,7 +8,7 @@ const {join} = require('path');
 
 const OUTPUTS = ['md', 'json'];
 
-const {values: {path, output, help, legacy}} = parseArgs({
+const {values: {path, output, help, legacy, sort }} = parseArgs({
   strict: true,
   options: {
     path: {
@@ -24,6 +24,10 @@ const {values: {path, output, help, legacy}} = parseArgs({
       type: 'boolean',
       short: 'l'
     },
+    sort: {
+      type: 'boolean',
+      short: 's'
+    },
     help: {
       type: 'boolean',
       short: 'h'
@@ -36,6 +40,7 @@ function printHelp(err) {
   -p,--path=''\t\tpath to javascript file(s)
   -o,--output=''\toutput (json|md) default md
   -l,--legacy=false\tlook for legacy EnvParse functions
+  -s,--sort\toutput variables in alphabetical order
   -h,--help=false\tprint this help
 
 Usage:
@@ -98,7 +103,11 @@ function printMD(data) {
   let maxColLength2 = 4;
   let maxColLength3 = 7;
   let maxColLength4 = 8;
-  Object.keys(data).forEach(key => {
+  const ks = Object.keys(data);
+  if (sort) {
+    ks.sort();
+  }
+  ks.forEach(key => {
     const env = data[key];
     if (!env.key) return;
     maxColLength1 = Math.max(maxColLength1, env.key.length);
@@ -108,7 +117,7 @@ function printMD(data) {
   const separator = `| ${''.padEnd(maxColLength1, '-')} | ${''.padStart(maxColLength2, '-')} | ${''.padStart(maxColLength3, '-')} | ${''.padStart(maxColLength4, '-')} |`;
   outs.push(`| ${'ENV'.padEnd(maxColLength1, ' ')} | ${'type'.padStart(maxColLength2, ' ')} | ${'default'.padStart(maxColLength3, ' ')} | required |`)
   outs.push(separator)
-  Object.keys(data).forEach(key => {
+  ks.forEach(key => {
     const env = data[key];
     if (!env.key) return;
     outs.push(`| ${env.key.padEnd(maxColLength1, ' ')} | ${(getType(env.type) || '').padStart(maxColLength2, ' ')} | ${`${env.arg !== undefined ? env.arg : env.comment || ''}`.padStart(maxColLength3, ' ')} | ${(isRequired(env.type) ? '*' : '').padStart(maxColLength4, ' ')} |`)
