@@ -103,6 +103,7 @@ function printMD(data) {
   let maxColLength2 = 4;
   let maxColLength3 = 7;
   let maxColLength4 = 8;
+  let maxColLength5 = 8;
   const ks = Object.keys(data);
   if (sort) {
     ks.sort();
@@ -112,15 +113,16 @@ function printMD(data) {
     if (!env.key) return;
     maxColLength1 = Math.max(maxColLength1, env.key.length);
     maxColLength2 = Math.max(maxColLength2, (getType(env.type) || '').length);
-    maxColLength3 = Math.max(maxColLength3, `${env.arg !== undefined ? env.arg : env.comment || ''}`.length);
+    maxColLength3 = Math.max(maxColLength3, `${env.arg !== undefined ? env.arg : ''}`.length);
+    maxColLength5 = Math.max(maxColLength5, `${env.comment !== undefined ? env.comment : ''}`.length);
   });
-  const separator = `| ${''.padEnd(maxColLength1, '-')} | ${''.padStart(maxColLength2, '-')} | ${''.padStart(maxColLength3, '-')} | ${''.padStart(maxColLength4, '-')} |`;
-  outs.push(`| ${'ENV'.padEnd(maxColLength1, ' ')} | ${'type'.padStart(maxColLength2, ' ')} | ${'default'.padStart(maxColLength3, ' ')} | required |`)
+  const separator = `| ${''.padEnd(maxColLength1, '-')} | ${''.padStart(maxColLength2, '-')} | ${''.padStart(maxColLength3, '-')} | ${''.padStart(maxColLength4, '-')} | ${''.padStart(maxColLength5, '-')} |`;
+  outs.push(`| ${'ENV'.padEnd(maxColLength1, ' ')} | ${'type'.padStart(maxColLength2, ' ')} | ${'default'.padStart(maxColLength3, ' ')} | required | ${'notes'.padStart(maxColLength5, ' ')} |`)
   outs.push(separator)
   ks.forEach(key => {
     const env = data[key];
     if (!env.key) return;
-    outs.push(`| ${env.key.padEnd(maxColLength1, ' ')} | ${(getType(env.type) || '').padStart(maxColLength2, ' ')} | ${`${env.arg !== undefined ? env.arg : env.comment || ''}`.padStart(maxColLength3, ' ')} | ${(isRequired(env.type) ? '*' : '').padStart(maxColLength4, ' ')} |`)
+    outs.push(`| ${env.key.padEnd(maxColLength1, ' ')} | ${(getType(env.type) || '').padStart(maxColLength2, ' ')} | ${`${env.arg !== undefined ? env.arg : ''}`.padStart(maxColLength3, ' ')} | ${(isRequired(env.type) ? '*' : '').padStart(maxColLength4, ' ')} | ${`${env.comment !== undefined ? env.comment : ''}`.padStart(maxColLength5, ' ')} |`)
   })
   console.log(outs.join('\n'))
 }
