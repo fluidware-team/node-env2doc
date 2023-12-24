@@ -1,6 +1,6 @@
 {
   "name": "@fluidware-it/env2doc",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Documentation generator for EnvParse usage",
   "main": "main.js",
   "bin": "main.js",
