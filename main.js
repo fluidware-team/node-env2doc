@@ -22,7 +22,8 @@ const {values: {path, output, help, sort, dependency}} = parseArgs({
     },
     sort: {
       type: 'boolean',
-      short: 's'
+      short: 's',
+      default: true
     },
     dependency: {
       type: 'boolean',
@@ -97,6 +98,32 @@ function getType(type) {
   }
 }
 
+function getDefault(type, args) {
+  switch (type) {
+    case 'envString':
+    case 'envBool':
+    case 'envInt':
+    case 'envStringList':
+      return `${args[1]}`;
+  }
+  return '';
+}
+
+function print(data, arg) {
+  if (Object.keys(data).length === 0) {
+    return;
+  }
+  switch (output) {
+    case 'md':
+      printMD(data, arg);
+      break;
+
+    case 'json':
+    default:
+      console.log(JSON.stringify(data, null, 3));
+  }
+}
+
 function printMD(data, depName) {
   const outs = [`
 ## ${depName ?? 'Environment variables'}
@@ -112,10 +139,9 @@ function printMD(data, depName) {
   }
   ks.forEach(key => {
     const env = data[key];
-    if (!env.key) return;
-    maxColLength1 = Math.max(maxColLength1, env.key.length);
+    maxColLength1 = Math.max(maxColLength1, key.length);
     maxColLength2 = Math.max(maxColLength2, (getType(env.type) || '').length);
-    maxColLength3 = Math.max(maxColLength3, `${env.arg !== undefined ? env.arg : ''}`.length);
+    maxColLength3 = Math.max(maxColLength3, getDefault(env.type, env.args).length);
     maxColLength5 = Math.max(maxColLength5, `${env.comment !== undefined ? env.comment : ''}`.length);
   });
   const separator = `| ${''.padEnd(maxColLength1, '-')} | ${''.padStart(maxColLength2, '-')} | ${''.padStart(maxColLength3, '-')} | ${''.padStart(maxColLength4, '-')} | ${''.padStart(maxColLength5, '-')} |`;
@@ -123,10 +149,30 @@ function printMD(data, depName) {
   outs.push(separator)
   ks.forEach(key => {
     const env = data[key];
-    if (!env.key) return;
-    outs.push(`| ${env.key.padEnd(maxColLength1, ' ')} | ${(getType(env.type) || '').padStart(maxColLength2, ' ')} | ${`${env.arg !== undefined ? env.arg : ''}`.padStart(maxColLength3, ' ')} | ${(isRequired(env.type) ? '*' : '').padStart(maxColLength4, ' ')} | ${`${env.comment !== undefined ? env.comment : ''}`.padStart(maxColLength5, ' ')} |`)
+    outs.push(`| ${key.padEnd(maxColLength1, ' ')} | ${(getType(env.type) || '').padStart(maxColLength2, ' ')} | ${`${getDefault(env.type, env.args)}`.padStart(maxColLength3, ' ')} | ${(isRequired(env.type) ? '*' : '').padStart(maxColLength4, ' ')} | ${`${env.comment !== undefined ? env.comment : ''}`.padStart(maxColLength5, ' ')} |`)
   })
   console.log(outs.join('\n'))
+}
+
+function buildTemplate(argument) {
+  // console.log(JSON.stringify(argument, null, 3))
+  const parts = [];
+  for (const quasy of argument.quasis) {
+    const pos = quasy.loc.start.line * 1000 + quasy.loc.start.column;
+    parts.push({
+      pos,
+      value: quasy.value.cooked
+    })
+  }
+  for (const expression of argument.expressions) {
+    const pos = expression.loc.start.line * 1000 + expression.loc.start.column;
+    parts.push({
+      pos,
+      value: `\${${expression.name}}`
+    })
+  }
+  parts.sort((a, b) => a.pos - b.pos);
+  return parts.map(p => p.value).join('');
 }
 
 function scanSources(path) {
@@ -177,48 +223,39 @@ function scanSources(path) {
           if (
             object?.property?.name === 'EnvParse'
           ) {
-            let arg;
             const obj = {
               type: callee.property.name,
+              args: []
             }
-
-            if (arguments[0].type === 'TemplateLiteral') {
-              const expression = arguments[0].expressions[0].name
-              const key = `${arguments[0].quasis[0].value.cooked}\${${expression}}${arguments[0].quasis[1].value.cooked}`;
-              // console.log(JSON.stringify(arguments[0], null, 3));
-              if (arguments[0].quasis.length === 2) {
-                obj.key = key;
-
-                arg = {
-                  value: key
-                }
-                const commentKey = `${arguments[0].quasis[0].value.cooked}${arguments[0].quasis[1].value.cooked}`
-                const comment = getComment(commentKey);
-                if (comment) {
-                  obj.comment = comment.replace(`${commentKey}:`, '').trim();
-                }
+            for (const argument of arguments) {
+              switch (argument.type) {
+                case 'TemplateLiteral':
+                  const arg = buildTemplate(argument);
+                  obj.args.push(arg);
+                  break;
+                case 'Literal':
+                  obj.args.push(argument.value);
+                  break;
+                case 'ArrayExpression':
+                  obj.args.push(argument.elements.map(e => e.value));
+                  break;
+                case 'Identifier':
+                  obj.args.push(`\${${argument.name}}`);
+                  break;
+                case 'CallExpression':
+                  obj.args.push('_function_');
+                  break;
+                default:
+                  obj.args.push(argument.type + '_' + argument.name);
+                  break;
               }
-            } else {
-
-              arg = arguments.shift();
-              obj.key = arg.value;
-
-              const comment = getComment(arg.value);
-              if (comment) {
-                obj.comment = comment.replace(`${arg.value}:`, '').trim();
-              }
-              obj.arg = arguments.map(arg => {
-                if (arg.type === 'Literal') {
-                  return arg.value
-                } else if (arg.type === 'ArrayExpression') {
-                  return arg.elements.map(arg => arg.value)
-                }
-              }).at(0)
             }
-            if (obj) {
-              data[obj.key] = obj
+            const key = obj.args[0];
+            const comment = getComment(key);
+            if (comment) {
+              obj.comment = comment.replace(`${key}:`, '').trim();
             }
-
+            data[key] = obj
           }
         }
         this.traverse(path);
@@ -226,17 +263,6 @@ function scanSources(path) {
     });
   }
   return data;
-}
-
-const data = scanSources(path);
-switch (output) {
-  case 'md':
-    printMD(data);
-    break;
-
-  case 'json':
-  default:
-    console.log(JSON.stringify(data, null, 3));
 }
 
 function scanDeps(dir) {
@@ -253,12 +279,12 @@ function scanDeps(dir) {
         const packageJson = JSON.parse(fs.readFileSync(_packageJsonPath, 'utf8'));
         if (file.name === '')
           console.log('packageJson', packageJson)
-        if (packageJson.dependencies?.['@fluidware-it/saddlebag']) {
+        if (packageJson.dependencies?.['@fluidware-it/saddlebag'] || packageJson.peerDependencies?.['@fluidware-it/saddlebag']) {
           if (packageJson.main) {
             const _path = join(dir, file.name, packageJson.main);
             const _dir = dirname(_path);
             const data = scanSources(_dir);
-            printMD(data, packageJson.name
+            print(data, packageJson.name
               + '@' + packageJson.version);
           }
         }
@@ -267,6 +293,8 @@ function scanDeps(dir) {
   }
 }
 
+const data = scanSources(path);
+print(data);
 if (dependency) {
   try {
     scanDeps('node_modules')
