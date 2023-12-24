@@ -279,7 +279,7 @@ function scanDeps(dir) {
         const packageJson = JSON.parse(fs.readFileSync(_packageJsonPath, 'utf8'));
         if (file.name === '')
           console.log('packageJson', packageJson)
-        if (packageJson.dependencies?.['@fluidware-it/saddlebag'] || packageJson.peerDependencies?.['@fluidware-it/saddlebag']) {
+        if (packageJson.name === '@fluidware-it/saddlebag' || packageJson.dependencies?.['@fluidware-it/saddlebag'] || packageJson.peerDependencies?.['@fluidware-it/saddlebag']) {
           if (packageJson.main) {
             const _path = join(dir, file.name, packageJson.main);
             const _dir = dirname(_path);
