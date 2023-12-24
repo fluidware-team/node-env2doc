@@ -4,11 +4,11 @@ const fs = require('fs');
 const esprima = require('esprima-next');
 const {visit} = require('ast-types');
 const {parseArgs} = require("node:util");
-const {join} = require('path');
+const {join, dirname} = require('path');
 
 const OUTPUTS = ['md', 'json'];
 
-const {values: {path, output, help, legacy, sort }} = parseArgs({
+const {values: {path, output, help, sort, dependency}} = parseArgs({
   strict: true,
   options: {
     path: {
@@ -20,13 +20,13 @@ const {values: {path, output, help, legacy, sort }} = parseArgs({
       short: 'o',
       default: 'md'
     },
-    legacy: {
-      type: 'boolean',
-      short: 'l'
-    },
     sort: {
       type: 'boolean',
       short: 's'
+    },
+    dependency: {
+      type: 'boolean',
+      short: 'd'
     },
     help: {
       type: 'boolean',
@@ -39,8 +39,8 @@ function printHelp(err) {
   console.log(`Options:
   -p,--path=''\t\tpath to javascript file(s)
   -o,--output=''\toutput (json|md) default md
-  -l,--legacy=false\tlook for legacy EnvParse functions
   -s,--sort\toutput variables in alphabetical order
+  -d,--dependency=false\tparse dependencies that use @fluidware-it/saddlebag
   -h,--help=false\tprint this help
 
 Usage:
@@ -97,8 +97,10 @@ function getType(type) {
   }
 }
 
-function printMD(data) {
-  const outs = ['\n## Environment variables\n'];
+function printMD(data, depName) {
+  const outs = [`
+## ${depName ?? 'Environment variables'}
+`];
   let maxColLength1 = 3;
   let maxColLength2 = 4;
   let maxColLength3 = 7;
@@ -127,81 +129,106 @@ function printMD(data) {
   console.log(outs.join('\n'))
 }
 
-const sources = [];
+function scanSources(path) {
+  const sources = [];
 
-try {
-  const statPath = fs.statSync(path);
-  if (statPath.isDirectory()) {
-    const files = fs.readdirSync(path, {withFileTypes: true, recursive: true});
-    for (const file of files) {
-      if (file.isFile()) {
-        if (file.name.endsWith('.js')) {
-          sources.push(join(file.path, file.name));
-        }
-      }
-    }
-  } else {
-    sources.push(path);
-  }
-} catch (e) {
-  console.error(`failed to open path ${path}: ${e.message}`);
-  process.exit(1);
-}
-
-const data = {};
-
-for (const source of sources) {
-  // console.log(`analyzing ${source}`)
-  const sourceCode = fs.readFileSync(source).toString('utf-8');
-  let ast;
   try {
-    ast = esprima.parseScript(sourceCode, {comment: true, loc: true});
-  } catch (e) {
-    console.error(`Failed to parse ${source}: ${e.message}`);
-    continue;
-  }
-  const comments = ast.comments ? ast.comments.map(c => c.value.trim()) : [];
-
-  function getComment(name) {
-    return comments.filter(c => c.startsWith(`${name}:`)).at(0);
-  }
-
-  visit(ast, {
-    visitCallExpression(path) {
-      const {callee, arguments} = path.node;
-      if (callee.type === 'MemberExpression') {
-        const {object} = callee;
-        if (
-          object?.property?.name === 'EnvParse'
-        ) {
-          let arg;
-          if (legacy) {
-            arguments.shift();
+    const statPath = fs.statSync(path);
+    if (statPath.isDirectory()) {
+      const files = fs.readdirSync(path, {withFileTypes: true, recursive: true});
+      for (const file of files) {
+        if (file.isFile()) {
+          if (file.name.endsWith('.js')) {
+            sources.push(join(file.path, file.name));
           }
-          arg = arguments.shift();
-          const obj = {
-            type: callee.property.name,
-            key: arg.value
-          }
-          const comment = getComment(arg.value);
-          if (comment) {
-            obj.comment = comment.replace(`${arg.value}:`, '').trim();
-          }
-          obj.arg = arguments.map(arg => {
-            if (arg.type === 'Literal') {
-              return arg.value
-            } else if (arg.type === 'ArrayExpression') {
-              return arg.elements.map(arg => arg.value)
-            }
-          }).at(0)
-          data[arg.value] = obj
         }
       }
-      this.traverse(path);
-    },
-  });
+    } else {
+      sources.push(path);
+    }
+  } catch (e) {
+    console.error(`failed to open path ${path}: ${e.message}`);
+    process.exit(1);
+  }
+
+  const data = {};
+
+  for (const source of sources) {
+    // console.log(`analyzing ${source}`)
+    const sourceCode = fs.readFileSync(source).toString('utf-8');
+    let ast;
+    try {
+      ast = esprima.parseScript(sourceCode, {comment: true, loc: true});
+    } catch (e) {
+      console.error(`Failed to parse ${source}: ${e.message}`);
+      continue;
+    }
+    const comments = ast.comments ? ast.comments.map(c => c.value.trim()) : [];
+
+    function getComment(name) {
+      return comments.filter(c => c.startsWith(`${name}:`)).at(0);
+    }
+
+    visit(ast, {
+      visitCallExpression(path) {
+        const {callee, arguments} = path.node;
+        if (callee.type === 'MemberExpression') {
+          const {object} = callee;
+          if (
+            object?.property?.name === 'EnvParse'
+          ) {
+            let arg;
+            const obj = {
+              type: callee.property.name,
+            }
+
+            if (arguments[0].type === 'TemplateLiteral') {
+              const expression = arguments[0].expressions[0].name
+              const key = `${arguments[0].quasis[0].value.cooked}\${${expression}}${arguments[0].quasis[1].value.cooked}`;
+              // console.log(JSON.stringify(arguments[0], null, 3));
+              if (arguments[0].quasis.length === 2) {
+                obj.key = key;
+
+                arg = {
+                  value: key
+                }
+                const commentKey = `${arguments[0].quasis[0].value.cooked}${arguments[0].quasis[1].value.cooked}`
+                const comment = getComment(commentKey);
+                if (comment) {
+                  obj.comment = comment.replace(`${commentKey}:`, '').trim();
+                }
+              }
+            } else {
+
+              arg = arguments.shift();
+              obj.key = arg.value;
+
+              const comment = getComment(arg.value);
+              if (comment) {
+                obj.comment = comment.replace(`${arg.value}:`, '').trim();
+              }
+              obj.arg = arguments.map(arg => {
+                if (arg.type === 'Literal') {
+                  return arg.value
+                } else if (arg.type === 'ArrayExpression') {
+                  return arg.elements.map(arg => arg.value)
+                }
+              }).at(0)
+            }
+            if (obj) {
+              data[obj.key] = obj
+            }
+
+          }
+        }
+        this.traverse(path);
+      },
+    });
+  }
+  return data;
 }
 
+const data = scanSources(path);
 switch (output) {
   case 'md':
     printMD(data);
@@ -212,3 +239,39 @@ switch (output) {
     console.log(JSON.stringify(data, null, 3));
 }
 
+function scanDeps(dir) {
+  const statPath = fs.statSync(dir);
+  if (statPath.isDirectory()) {
+    const files = fs.readdirSync(dir, {withFileTypes: true, recursive: false});
+    for (const file of files) {
+      if (file.isDirectory()) {
+        const _packageJsonPath = join(file.path, file.name, 'package.json')
+        if (!fs.existsSync(join(_packageJsonPath))) {
+          scanDeps(join(dir, file.name));
+          continue;
+        }
+        const packageJson = JSON.parse(fs.readFileSync(_packageJsonPath, 'utf8'));
+        if (file.name === '')
+          console.log('packageJson', packageJson)
+        if (packageJson.dependencies?.['@fluidware-it/saddlebag']) {
+          if (packageJson.main) {
+            const _path = join(dir, file.name, packageJson.main);
+            const _dir = dirname(_path);
+            const data = scanSources(_dir);
+            printMD(data, packageJson.name
+              + '@' + packageJson.version);
+          }
+        }
+      }
+    }
+  }
+}
+
+if (dependency) {
+  try {
+    scanDeps('node_modules')
+  } catch (e) {
+    console.error(`failed to open path ${path}: ${e.message}`);
+    process.exit(1);
+  }
+}
