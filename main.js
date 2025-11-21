@@ -2,13 +2,13 @@
 
 const fs = require('fs');
 const esprima = require('esprima-next');
-const {visit} = require('ast-types');
-const {parseArgs} = require("node:util");
-const {join, dirname} = require('path');
+const { visit } = require('ast-types');
+const { parseArgs } = require("node:util");
+const { join, dirname } = require('path');
 
 const OUTPUTS = ['md', 'json'];
 
-const {values: {path, output, help, sort, dependency}} = parseArgs({
+const { values: { path, output, help, sort, dependency } } = parseArgs({
   strict: true,
   options: {
     path: {
@@ -181,11 +181,12 @@ function scanSources(path) {
   try {
     const statPath = fs.statSync(path);
     if (statPath.isDirectory()) {
-      const files = fs.readdirSync(path, {withFileTypes: true, recursive: true});
-      for (const file of files) {
-        if (file.isFile()) {
-          if (file.name.endsWith('.js')) {
-            sources.push(join(file.path, file.name));
+      const filePaths = fs.readdirSync(path, { recursive: true, encoding: 'utf8' });
+      for (const filePath of filePaths) {
+        if (filePath.endsWith('.js')) {
+          const full = join(path, filePath);
+          if (fs.statSync(full).isFile()) {
+            sources.push(full);
           }
         }
       }
@@ -204,7 +205,7 @@ function scanSources(path) {
     const sourceCode = fs.readFileSync(source).toString('utf-8');
     let ast;
     try {
-      ast = esprima.parseScript(sourceCode, {comment: true, loc: true});
+      ast = esprima.parseScript(sourceCode, { comment: true, loc: true });
     } catch (e) {
       console.error(`Failed to parse ${source}: ${e.message}`);
       continue;
@@ -217,9 +218,9 @@ function scanSources(path) {
 
     visit(ast, {
       visitCallExpression(path) {
-        const {callee, arguments} = path.node;
+        const { callee, arguments } = path.node;
         if (callee.type === 'MemberExpression') {
-          const {object} = callee;
+          const { object } = callee;
           if (
             object?.property?.name === 'EnvParse'
           ) {
@@ -268,11 +269,11 @@ function scanSources(path) {
 function scanDeps(dir) {
   const statPath = fs.statSync(dir);
   if (statPath.isDirectory()) {
-    const files = fs.readdirSync(dir, {withFileTypes: true, recursive: false});
+    const files = fs.readdirSync(dir, { withFileTypes: true, recursive: false });
     for (const file of files) {
       if (file.isDirectory()) {
-        const _packageJsonPath = join(file.path, file.name, 'package.json')
-        if (!fs.existsSync(join(_packageJsonPath))) {
+        const _packageJsonPath = join(dir, file.name, 'package.json')
+        if (!fs.existsSync(_packageJsonPath)) {
           scanDeps(join(dir, file.name));
           continue;
         }
